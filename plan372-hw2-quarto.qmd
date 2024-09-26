@@ -1,0 +1,386 @@
+---
+title: "plan372-hw2"
+format: pdf
+editor: visual
+---
+
+### Load Libraries
+
+```{r libraries, message = FALSE, warning = FALSE}
+library(tidyverse) 
+library(tidycensus)
+library(sf)
+library(tmap)
+library(ggthemes)
+library(tmaptools)
+library(RColorBrewer)
+library(tigris)
+library(spdep)
+library(knitr)
+library(kableExtra)
+library(wordcountaddin)
+library(ggplot2)
+library(dplyr)
+library(stringr)
+```
+
+### Load Data
+
+```{r}
+# Read the restaurant inspections file into the document
+rest_inspec <- read_csv("restaurant_inspections.csv")
+
+```
+
+### 1. Visualize the overall distribution of inspection scores using a histogram
+
+```{r}
+# Create the histogram
+ggplot(rest_inspec, aes(x = SCORE)) +
+  geom_histogram(binwidth = 0.5, fill = "blue", color = "white", alpha = 0.7) +
+  labs(title = "Distribution of Inspection Scores",
+       x = "Sanitation Score",
+       y = "Frequency") +
+  xlim(85, 102) +  # Set limits for x-axis
+  theme_minimal()
+```
+
+##### Note: GGplot recognized and removed 8 rows containing non-finite or missing values.
+
+### 2. Trend in older vs. newer restaurants
+
+```{r}
+# Convert date columns to Date type
+rest_inspec$RESTAURANTOPENDATE <- as.Date(rest_inspec$RESTAURANTOPENDATE)
+rest_inspec$DATE_ <- as.Date(rest_inspec$DATE_)
+
+# Calculate restaurant age
+rest_inspec <- rest_inspec %>%
+  mutate(Restaurant_Age = as.numeric(difftime(DATE_, RESTAURANTOPENDATE, units = "days")) / 365)
+
+# Create a scatter plot with y-axis starting at 80 and add a trend line
+ggplot(rest_inspec, aes(x = Restaurant_Age, y = SCORE)) +
+  geom_point(size = 1, alpha = 0.6, color = "darkblue") +  # Adjust size and alpha for spread
+  geom_smooth(method = "lm", color = "red", se = FALSE) +  # Add a linear trend line
+  labs(title = "Inspection Scores vs. Restaurant Age",
+       x = "Age of Restaurant (Years)",
+       y = "Sanitation Score") +
+  ylim(80, 100) +  # Set y-axis limits
+  theme_minimal()
+
+
+```
+
+##### The flat trend line supports the idea that restaurant age does not strongly impact inspection performance. This finding could lead to further investigation into what other factors contribute to sanitation scores and whether age should be a consideration in assessing restaurant quality.
+
+### 3. Inspection variation by City 
+
+```{r}
+
+# Clean the city names
+rest_inspec$CITY <- str_to_upper(rest_inspec$CITY)  # Convert city names to uppercase
+
+# Recode city names for consistency (example recodings)
+rest_inspec$CITY <- recode(rest_inspec$CITY,
+                             "RALEIGH" = "RALEIGH",
+                             "Raleigh" = "RALEIGH",
+                             "CARY" = "CARY",
+                             "Cary" = "CARY",
+                             "APEX" = "APEX",
+                             "Apex" = "APEX",
+                             "Fuquay Varina" = "FUQUAY-VARINA",
+                             "fuquay-varina" = "FUQUAY-VARINA",
+                             "OTHER CITY NAME" = "OTHER CITY NAME")  # Add more recodings as needed
+
+# Calculate average inspection scores by city
+city_scores <- rest_inspec %>%
+  group_by(CITY) %>%
+  summarize(Average_Score = mean(SCORE, na.rm = TRUE))
+
+# View the summary table
+print(city_scores)
+
+ggplot(city_scores, aes(x = reorder(CITY, -Average_Score), y = Average_Score)) +
+  geom_bar(stat = "identity", fill = "skyblue", width = 0.4) +  # Adjust width for spacing
+  labs(title = "Average Inspection Scores by City in Wake County",
+       x = "City",
+       y = "Average Sanitation Score") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 10),  # Rotate x-axis text
+        plot.title = element_text(size = 14, face = "bold"),  # Increase title size
+        panel.spacing = unit(1, "lines")) +  # Increase space between bars
+  coord_flip()  # Flip coordinates for better readability
+
+```
+
+##### Inspection scores to tend to slightly vary based on county with New Hill County having the highest average score and Angier county having the lowest average score.
+
+### 4. Variation based on individual Inspector
+
+```{r}
+# Calculate average inspection scores by inspector
+inspector_scores <- rest_inspec %>%
+  group_by(INSPECTOR) %>%
+  summarize(Average_Score = mean(SCORE, na.rm = TRUE)) %>%
+  filter(!is.na(Average_Score))  # Filter out NA average scores
+
+# View the summary table
+print(inspector_scores)
+
+# Visualize the average scores by inspector with increased spacing
+ggplot(inspector_scores, aes(x = reorder(INSPECTOR, -Average_Score), y = Average_Score)) +
+  geom_bar(stat = "identity", fill = "lightcoral", width = 0.3) +  # Adjust width for spacing
+  labs(title = "Average Inspection Scores by Inspector in Wake County",
+       x = "Inspector",
+       y = "Average Sanitation Score") +
+ theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 10),  # Rotate x-axis text
+        plot.title = element_text(size = 14, face = "bold"),  # Increase title size
+        panel.spacing = unit(1, "lines")) +  # Increase space between bars
+  coord_flip()  # Flip coordinates for better readability
+
+```
+
+##### Inspection scores do seem to vary based on inspector, with James Smith giving the highest average score and Thomas Jumalon giving the lowest average score.
+
+### 5. Examination of sample sizes 
+
+```{r}
+# Group by inspector and summarize scores
+inspection_summary_age <- rest_inspec %>%
+  group_by(Restaurant_Age) %>%
+  summarise(
+    mean_score = mean(SCORE, na.rm = TRUE),
+    sd_score = sd(SCORE, na.rm = TRUE),
+    sample_size = n()
+  )
+
+# Display the summary
+print(inspection_summary_age)
+```
+
+```{r}
+# Group by inspector and summarize scores
+inspection_summary <- rest_inspec %>%
+  group_by(INSPECTOR) %>%
+  summarise(
+    mean_score = mean(SCORE, na.rm = TRUE),
+    sd_score = sd(SCORE, na.rm = TRUE),
+    sample_size = n()
+  )
+
+# Display the summary
+print(inspection_summary)
+```
+
+```{r}
+# Group by inspector and summarize scores
+inspection_summary_city <- rest_inspec %>%
+  group_by(CITY) %>%
+  summarise(
+    mean_score = mean(SCORE, na.rm = TRUE),
+    sd_score = sd(SCORE, na.rm = TRUE),
+    sample_size = n()
+  )
+
+# Display the summary
+print(inspection_summary_city)
+```
+
+##### It is very possible that some of the above results are due to small sample sizes, such as some inspectors only having evaluated one single restaurant or a county only reporting a small number of facilities. It is important to take into consideration the sample sizes within this data to avoid making broad generalization without all the context. 
+
+### 6. Sanitation scores examined through facility type 
+
+```{r}
+# Calculate average scores by facility type and filter out NA values
+facility_scores <- rest_inspec %>%
+  filter(!is.na(SCORE)) %>%  # Remove rows with NA scores
+  group_by(FACILITYTYPE) %>%
+  summarize(
+    Average_Score = mean(SCORE, na.rm = TRUE)  # Calculate the average score
+  ) %>%
+  filter(!is.na(Average_Score))  # Ensure no NA average scores
+
+# View the summary table
+print(facility_scores)
+
+# Visualize the average scores by facility type without showing NA values
+ggplot(facility_scores, aes(x = reorder(FACILITYTYPE, -Average_Score), y = Average_Score)) +
+  geom_bar(stat = "identity", fill = "lightblue", width = 0.4) +
+  labs(title = "Average Sanitation Scores by Facility Type",
+       x = "Facility Type",
+       y = "Average Sanitation Score") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 10),
+        plot.title = element_text(size = 14, face = "bold"),
+        panel.spacing = unit(1, "lines")) +
+  coord_flip()
+
+
+
+```
+
+##### Restaurants in this dataset had the lowest average inspection score of all facility types.
+
+### 7. Complete above analysis for only restaurants
+
+#### a. Visualize restaurant inspection scores with a histogram
+
+```{r}
+# FIlter rest_inspec for restaurant
+restaurant_data <- rest_inspec %>%
+  filter(FACILITYTYPE == "Restaurant", !is.na(SCORE))
+
+# Create the histogram
+ggplot(restaurant_data, aes(x = SCORE)) +
+  geom_histogram(binwidth = 0.5, fill = "blue", color = "white", alpha = 0.7) +
+  labs(title = "Distribution of Inspection Scores",
+       x = "Sanitation Score",
+       y = "Frequency") +
+  xlim(80, 102) +  # Set limits for x-axis
+  theme_minimal()
+
+```
+
+##### GGplot removed 2 rows containing non-finite or missing values
+
+### b. Analyze older vs. newer restaurants on their inspection
+
+```{r}
+# Convert date columns to Date type
+restaurant_data$RESTAURANTOPENDATE <- as.Date(restaurant_data$RESTAURANTOPENDATE)
+restaurant_data$DATE_ <- as.Date(restaurant_data$DATE_)
+
+# Calculate restaurant age
+restaurant_data <- restaurant_data %>%
+  mutate(Restaurant_Age = as.numeric(difftime(DATE_, RESTAURANTOPENDATE, units = "days")) / 365)
+
+# Create a scatter plot with y-axis starting at 80 and add a trend line
+ggplot(restaurant_data, aes(x = Restaurant_Age, y = SCORE)) +
+  geom_point(size = 1, alpha = 0.6, color = "darkblue") +  # Adjust size and alpha for spread
+  geom_smooth(method = "lm", color = "red", se = FALSE) +  # Add a linear trend line
+  labs(title = "Inspection Scores vs. Restaurant Age",
+       x = "Age of Restaurant (Years)",
+       y = "Sanitation Score") +
+  ylim(80, 100) +  # Set y-axis limits
+  theme_minimal()
+
+```
+
+##### The scatter plot trend line suggests there is little correlation between Restaurant age and score because it is relatively flat.
+
+### c. Analyze restaurant inspection by city 
+
+```{r}
+
+# Clean the city names
+restaurant_data$CITY <- str_to_upper(restaurant_data$CITY)  # Convert city names to uppercase
+
+# Recode city names for consistency (example recodings)
+restaurant_data$CITY <- recode(restaurant_data$CITY,
+                             "RALEIGH" = "RALEIGH",
+                             "Raleigh" = "RALEIGH",
+                             "CARY" = "CARY",
+                             "Cary" = "CARY",
+                             "APEX" = "APEX",
+                             "Apex" = "APEX",
+                             "Fuquay Varina" = "FUQUAY-VARINA",
+                             "fuquay-varina" = "FUQUAY-VARINA",
+                             "OTHER CITY NAME" = "OTHER CITY NAME")  # Add more recodings as needed
+
+# Calculate average inspection scores by city
+rest_city_scores <- restaurant_data %>%
+  group_by(CITY) %>%
+  summarize(Average_Score = mean(SCORE, na.rm = TRUE))
+
+# View the summary table
+print(city_scores)
+
+ggplot(rest_city_scores, aes(x = reorder(CITY, -Average_Score), y = Average_Score)) +
+  geom_bar(stat = "identity", fill = "skyblue", width = 0.4) +  # Adjust width for spacing
+  labs(title = "Average Inspection Scores by City in Wake County",
+       x = "City",
+       y = "Average Sanitation Score") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 10),  # Rotate x-axis text
+        plot.title = element_text(size = 14, face = "bold"),  # Increase title size
+        panel.spacing = unit(1, "lines")) +  # Increase space between bars
+  coord_flip()  # Flip coordinates for better readability
+```
+
+##### Yes, restaurant inspection scores vary by city with Clayton having the lowest scores and New Hill having the highest scores.
+
+### d. Analyze restaurant inspection score by individual inspector
+
+```{r}
+# Calculate average inspection scores by inspector
+inspector_scores_rest <- restaurant_data %>%
+  group_by(INSPECTOR) %>%
+  summarize(Average_Score = mean(SCORE, na.rm = TRUE)) %>%
+  filter(!is.na(Average_Score))  # Filter out NA average scores
+
+# View the summary table
+print(inspector_scores)
+
+# Visualize the average scores by inspector with increased spacing
+ggplot(inspector_scores_rest, aes(x = reorder(INSPECTOR, -Average_Score), y = Average_Score)) +
+  geom_bar(stat = "identity", fill = "lightcoral", width = 0.3) +  # Adjust width for spacing
+  labs(title = "Average Inspection Scores by Inspector in Wake County",
+       x = "Inspector",
+       y = "Average Sanitation Score") +
+ theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 10),  # Rotate x-axis text
+        plot.title = element_text(size = 14, face = "bold"),  # Increase title size
+        panel.spacing = unit(1, "lines")) +  # Increase space between bars
+  coord_flip()  # Flip coordinates for better readability
+```
+
+##### For restaurants, Thomas Jumalon scored restaurants the lowest and James Smith scored restaurants the highest.
+
+### d. Examination of restaurant sample sizes
+
+```{r}
+# Group by inspector and summarize scores
+age_summary_rest <- restaurant_data %>%
+  group_by(Restaurant_Age) %>%
+  summarise(
+    mean_score = mean(SCORE, na.rm = TRUE),
+    sd_score = sd(SCORE, na.rm = TRUE),
+    sample_size = n()
+  )
+
+# Display the summary
+print(age_summary_rest)
+```
+
+```{r}
+# Group by inspector and summarize scores
+inspection_summary_rest <- restaurant_data %>%
+  group_by(INSPECTOR) %>%
+  summarise(
+    mean_score = mean(SCORE, na.rm = TRUE),
+    sd_score = sd(SCORE, na.rm = TRUE),
+    sample_size = n()
+  )
+
+# Display the summary
+print(inspection_summary_rest)
+```
+
+### 
+
+```{r}
+# Group by inspector and summarize scores
+inspection_summary_rest_city <- restaurant_data %>%
+  group_by(CITY) %>%
+  summarise(
+    mean_score = mean(SCORE, na.rm = TRUE),
+    sd_score = sd(SCORE, na.rm = TRUE),
+    sample_size = n()
+  )
+
+# Display the summary
+print(inspection_summary_rest_city)
+```
+
+##### Again, it is very possible that small sample sizes are skewing the data for restaurant age, individual inspector, and city as there are very small sample sizes in all categories for some restaurant.
